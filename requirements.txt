@@ -3,4 +3,3 @@ pandas
 sqlalchemy
 httpx
 beautifulsoup4
-beautifulsoup4
