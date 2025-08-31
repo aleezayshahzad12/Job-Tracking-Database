@@ -1,4 +1,3 @@
-# app.py
 import sqlite3
 from pathlib import Path
 import pandas as pd
@@ -35,10 +34,9 @@ CREATE TABLE IF NOT EXISTS jobs (
 """
 
 # =========================
-# URL Parsing Utilities (FIRST so they’re defined before use)
+# URL Parsing Utilities
 # =========================
 def fetch_html(url: str):
-    """Fetch HTML and return (html_text, final_url, error)."""
     try:
         headers = {
             "User-Agent": (
@@ -54,7 +52,6 @@ def fetch_html(url: str):
         return "", url, f"{type(e).__name__}: {e}"
 
 def detect_platform(final_url: str, html_text: str):
-    """Return a platform key like 'lever', 'greenhouse', 'workday', 'ashby', 'smartrecruiters', or 'generic'."""
     url = (final_url or "").lower()
     if any(k in url for k in ["jobs.lever.co", "lever.co"]):
         return "lever"
@@ -69,7 +66,6 @@ def detect_platform(final_url: str, html_text: str):
     return "generic"
 
 def _as_text(v) -> str:
-    """Coerce JSON-LD values (str | list | number | None) to a clean string."""
     if v is None:
         return ""
     if isinstance(v, (int, float)):
@@ -85,7 +81,6 @@ def _as_text(v) -> str:
     return ""
 
 def extract_jsonld_jobposting(html_text: str):
-    """Return the first schema.org JobPosting object in JSON-LD, or None."""
     try:
         soup = BeautifulSoup(html_text, "html.parser")
         for tag in soup.find_all("script", type="application/ld+json"):
@@ -108,7 +103,6 @@ def extract_jsonld_jobposting(html_text: str):
         return None
 
 def parse_from_jsonld(jobposting_obj: dict):
-    """Map JSON-LD JobPosting → our fields, tolerating lists or scalars."""
     if not isinstance(jobposting_obj, dict):
         return {}
 
@@ -168,7 +162,6 @@ def parse_from_jsonld(jobposting_obj: dict):
     }
 
 def parse_generic_meta(html_text: str):
-    """Fallback using <title>, meta description, og tags."""
     out = {"title": "", "company": "", "location": "", "salary": "",
            "posted_date": "", "deadline": "", "job_type": ""}
     try:
@@ -185,9 +178,6 @@ def parse_generic_meta(html_text: str):
                 maybe_company = parts[-1].strip()
                 out["title"] = " - ".join(parts[:-1]).strip()
         out["company"] = maybe_company
-        desc_text = meta_desc["content"] if (meta_desc and meta_desc.has_attr("content")) else ""
-        out["salary"] = extract_salary(desc_text)
-        out["job_type"] = infer_job_type(desc_text)
         return out
     except Exception:
         return out
@@ -207,7 +197,6 @@ def _normalize_date(s: str) -> str:
     return ""
 
 def normalize_job_record(raw: dict):
-    """Ensure all required keys exist and strings are trimmed."""
     keys = [
         "source","url","company","title","location","salary",
         "posted_date","deadline","job_type","experience_level","notes","status"
@@ -248,36 +237,7 @@ def infer_job_type(text: str | None = None):
         return "Temporary"
     return ""
 
-def extract_salary(text: str | None = None):
-    """Very light regex to pull $80,000, $40–50/hr, 120k, etc."""
-    t = (text or "")
-    m = re.search(
-        r"\$?\s?\d{2,3}(?:,\d{3})?(?:\s*[-–]\s*\$?\d{2,3}(?:,\d{3})?)?\s*(?:k|K|/yr|per year|per hour|/hr|hour|annually)?",
-        t
-    )
-    if m:
-        return m.group(0).strip()
-    return ""
-
-def extract_dates(text: str | None = None):
-    """Placeholder date extractor."""
-    return {"posted_date": "", "deadline": ""}
-
-def choose_best_source(platform: str, has_jsonld: bool):
-    """Decide precedence among parsers (we use JSON-LD then generic)."""
-    order = []
-    if has_jsonld:
-        order.append("jsonld")
-    order.append("generic")
-    return order
-
 def build_job_from_url(url: str):
-    """
-    Orchestrator:
-      - fetch_html → detect_platform → choose_best_source
-      - run JSON-LD and/or generic fallback
-      - normalize + infer (experience level, job type, salary, dates)
-    """
     html, final_url, fetch_err = fetch_html(url)
     record = {
         "source": "URL",
@@ -310,33 +270,6 @@ def build_job_from_url(url: str):
         record["job_type"] = infer_job_type(record.get("title",""))
     return normalize_job_record(record)
 
-def validate_job_record(job: dict):
-    """Validate required keys and basic types."""
-    must = ["source","url","company","title","status"]
-    for k in must:
-        if k not in job:
-            return False, f"missing key {k}"
-        if not isinstance(job[k], str):
-            return False, f"key {k} not a string"
-    return True, None
-
-def sanitize_for_db(job: dict):
-    """Final cleanup before insert."""
-    clean = {}
-    for k, v in job.items():
-        s = v if isinstance(v, str) else ""
-        s = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", s)  # drop control chars
-        if k in {"notes"} and len(s) > 5000:
-            s = s[:5000]
-        if k in {"title","company","location","job_type","experience_level","status","salary"} and len(s) > 500:
-            s = s[:500]
-        clean[k] = s.strip()
-    return clean
-
-def render_parse_diagnostics(raw_signals: dict | None = None):
-    """Optional diagnostics hook (unused)."""
-    return {}
-
 # =========================
 # DB helpers
 # =========================
@@ -353,11 +286,6 @@ def _table_exists(conn) -> bool:
     return row is not None
 
 def init_db():
-    """
-    Ensure the 'jobs' table exists:
-    - Use jobs.sql if present,
-    - else create using FALLBACK_SCHEMA.
-    """
     with get_conn() as conn:
         if SQL_PATH.exists():
             with open(SQL_PATH, "r", encoding="utf-8") as f:
@@ -367,16 +295,11 @@ def init_db():
             conn.executescript(FALLBACK_SCHEMA)
 
 def ensure_db():
-    """Create the table if missing (using jobs.sql or fallback)."""
     with get_conn() as conn:
         if not _table_exists(conn):
             init_db()
 
 def insert_job(row: dict):
-    """
-    Insert one job. Returns (inserted: bool, reason: str|None).
-    Uses INSERT OR IGNORE so duplicates by URL won’t crash; we detect if ignored.
-    """
     cols = [
         "source","url","company","title","location","salary",
         "posted_date","deadline","job_type","experience_level",
@@ -402,7 +325,6 @@ def insert_job(row: dict):
             return False, "ignored (likely schema mismatch or constraint)"
 
 def delete_job(job_id: int) -> tuple[bool, str | None]:
-    """Delete a job by primary key id. Returns (deleted, reason)."""
     try:
         with get_conn() as conn:
             cur = conn.execute("DELETE FROM jobs WHERE id = ?", (int(job_id),))
@@ -434,12 +356,49 @@ def total_rows() -> int:
         return conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
 
 # =========================
-# App UI (runs AFTER all defs)
+# App UI
 # =========================
 def run_app():
     ensure_db()
 
-    # ===== HERO (centered) =====
+    # ===== CSS THEME =====
+    st.markdown(
+        """
+        <style>
+            .stApp {
+                background-color: #e6f2ff; /* baby blue */
+                color: black; /* default text */
+            }
+            .stApp h1 {
+                color: #003366; /* dark blue title */
+                text-align: center;
+                font-weight: 700;
+            }
+            .stMarkdown, .stText, p, div {
+                color: black !important;
+            }
+            .formwrap {
+                background: white;
+                padding: 1.5em;
+                border-radius: 10px;
+                box-shadow: 0px 2px 6px rgba(0,0,0,0.15);
+            }
+            div.stButton > button {
+                background-color: #003366;
+                color: white;
+                border-radius: 8px;
+                font-weight: bold;
+            }
+            div.stButton > button:hover {
+                background-color: #002244;
+                color: white;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # ===== HERO =====
     st.markdown('<div class="hero">', unsafe_allow_html=True)
     st.title("Job Tracking Database")
     st.markdown(
@@ -448,17 +407,15 @@ def run_app():
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ===== CENTERED ADD-BY-URL FORM =====
+    # ===== ADD-BY-URL FORM =====
     with st.container():
         st.markdown('<div class="formwrap">', unsafe_allow_html=True)
         with st.form("add_by_url", clear_on_submit=True):
             url = st.text_input("Job URL (Indeed/LinkedIn/etc.)", placeholder="https://…")
             notes_input = st.text_area("Notes (optional)", placeholder="Any personal notes…", height=100)
-            # Center the submit button by sandwiching it between empty columns
             c1, c2, c3 = st.columns([1,2,1])
             with c2:
                 submitted = st.form_submit_button("Add me", use_container_width=True)
-
         st.markdown('</div>', unsafe_allow_html=True)
 
     if submitted and url.strip():
@@ -466,12 +423,7 @@ def run_app():
         if notes_input.strip():
             existing = record.get("notes", "")
             record["notes"] = (existing + "\n" + notes_input).strip() if existing else notes_input.strip()
-
-        ok, err = validate_job_record(record)
-        if not ok:
-            st.warning(f"Saving with minimal fields (parser issue: {err})")
-
-        inserted, reason = insert_job(sanitize_for_db(record))
+        inserted, reason = insert_job(record)
         if inserted:
             st.success(f"Saved ✓ (total rows now: {total_rows()})")
         else:
@@ -479,8 +431,7 @@ def run_app():
 
     st.markdown("")
 
-    # ===== JOB LISTINGS POPUP =====
-    # Define dialog once
+    # ===== JOB LISTINGS =====
     try:
         @st.dialog("Job Listings")
         def job_listings_dialog():
@@ -496,10 +447,8 @@ def run_app():
                     "Find (company / title / url)",
                     key="dlg_search_filter"
                 )
-
             df_d = list_jobs(search=f_search_d, statuses=f_status_d)
             st.dataframe(df_d, use_container_width=True, hide_index=True)
-
             if not df_d.empty:
                 st.download_button(
                     "Export CSV",
@@ -508,68 +457,27 @@ def run_app():
                     "text/csv",
                     key="dlg_export_csv"
                 )
-
             st.markdown("---")
-            del_id = st.number_input(
-                "Delete row (enter ID)",
-                min_value=1, step=1, value=None,
-                placeholder="Enter numeric id",
-                key="dlg_del_id"
-            )
-            b1, b2 = st.columns(2)
-            with b1:
-                if st.button("Delete", key="dlg_delete_btn"):
-                    if del_id is None:
-                        st.error("Please enter an ID.")
-                    else:
-                        ok, reason = delete_job(int(del_id))
-                        if ok:
-                            st.success(f"Deleted {int(del_id)} ✓ (total rows now: {total_rows()})")
-                            st.rerun()
-                        else:
-                            st.error(f"Could not delete {int(del_id)}: {reason}")
-            with b2:
-                if st.button("Close", key="dlg_close_btn"):
-                    st.rerun()
+            del_id = st.number_input("Delete row (enter ID)", min_value=1, step=1, value=None)
+            if st.button("Delete"):
+                if del_id is None:
+                    st.error("Please enter an ID.")
+                else:
+                    ok, reason = delete_job(int(del_id))
+                    if ok:
+                        st.success(f"Deleted {int(del_id)} ✓ (total rows now: {total_rows()})")
+                        st.rerun()
 
-        # Centered "Show Job Listings" button
         s1, s2, s3 = st.columns([1,2,1])
         with s2:
             if st.button("Show Job Listings", use_container_width=True):
                 job_listings_dialog()
-
     except AttributeError:
-        # Fallback if your Streamlit version doesn't have st.dialog
         s1, s2, s3 = st.columns([1,2,1])
         with s2:
             if st.button("Show Job Listings", use_container_width=True):
                 with st.expander("Job Listings", expanded=True):
-                    c1, c2 = st.columns([1,2])
-                    with c1:
-                        f_status = st.multiselect(
-                            "Filter by status",
-                            ["Saved","Applied","Interview","Offer","Rejected"]
-                        )
-                    with c2:
-                        f_search = st.text_input("Find (company / title / url)")
-
-                    df = list_jobs(search=f_search, statuses=f_status)
+                    df = list_jobs()
                     st.dataframe(df, use_container_width=True, hide_index=True)
 
-                    st.markdown("---")
-                    del_id = st.number_input(
-                        "Delete row (enter ID)",
-                        min_value=1, step=1, value=None,
-                        placeholder="Enter numeric id"
-                    )
-                    if st.button("Delete"):
-                        if del_id is None:
-                            st.error("Please enter an ID.")
-                        else:
-                            ok, reason = delete_job(int(del_id))
-                            if ok:
-                                st.success(f"Deleted {int(del_id)} ✓ (total rows now: {total_rows()})")
-                                st.rerun()
-                            else:
-                                st.error(f"Could not delete {int(del_id)}: {reason}")
 run_app()
