@@ -4,7 +4,8 @@ A lightweight, full-stack Streamlit application that automates your job search. 
 
 **🚀 Impact:** Drastically reduces time spent manually logging applications, providing a centralized dashboard to track your entire job search.
 
-![Built with Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)
+![Built with Streamlit]
+(https://job-tracking-database-zt9shsgyo3sgn2dpywkngx.streamlit.app/)
 
 ## 🌟 Features
 
