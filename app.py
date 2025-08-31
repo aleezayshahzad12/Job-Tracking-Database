@@ -401,10 +401,7 @@ def run_app():
     # ===== HERO =====
     st.markdown('<div class="hero">', unsafe_allow_html=True)
     st.title("Job Tracking Database")
-    st.markdown(
-        "<p>Save job postings by URL, keep notes, and manage your application flow.</p>",
-        unsafe_allow_html=True
-    )
+    
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ===== ADD-BY-URL FORM =====
